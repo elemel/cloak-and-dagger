@@ -1,6 +1,7 @@
+from Box2D import *
+import math
 import pyglet
 from pyglet.gl import *
-from Box2D import *
 
 class Actor(object):
     def __init__(self, game_engine, stepping=False, drawing=False):
@@ -113,6 +114,16 @@ class LevelActor(Actor):
         with pyglet.resource.file(level_name) as level_file:
             level_parser = LevelParser(level_file)
             self.tiles = level_parser.parse()
+        self.body = self.game_engine.world.CreateStaticBody()
+        for tile_position, tile_char in self.tiles.iteritems():
+            tile_x, tile_y = tile_position
+            min_x = float(tile_x) - self.half_tile_width
+            min_y = float(tile_y) - self.half_tile_height
+            max_x = float(tile_x) + self.half_tile_width
+            max_y = float(tile_y) + self.half_tile_height
+            vertices = ((min_x, min_y), (max_x, min_y),
+                        (max_x, max_y), (min_x, max_y))
+            self.body.CreatePolygonFixture(vertices=vertices)
 
     def draw(self):
         for tile_position, tile_char in self.tiles.iteritems():
@@ -271,7 +282,37 @@ class GameEngine(object):
         glTranslatef(-self._player_actor.x, -self._player_actor.y, 0.0)
         for actor in list(self._draw_actors):
             actor.draw()
+        self._debug_draw()
         glPopMatrix()
+
+    def _debug_draw(self):
+        for body in self.world.bodies:
+            glPushMatrix()
+            x, y = body.position
+            glTranslatef(x, y, 0.0)
+            angle = body.angle * 180.0 / math.pi
+            glRotatef(angle, 0.0, 0.0, 1.0)
+            for fixture in body.fixtures:
+                shape = fixture.shape
+                if isinstance(shape, b2PolygonShape):
+                    glBegin(GL_LINE_LOOP)
+                    for vx, vy in shape.vertices:
+                        glVertex2f(vx, vy)
+                    glEnd()
+                elif isinstance(shape, b2CircleShape):
+                    cx, cy = shape.pos
+                    radius = shape.radius
+                    glBegin(GL_LINE_LOOP)
+                    vertex_count = 16
+                    for i in xrange(vertex_count):
+                        angle = 2.0 * math.pi * float(i) / float(vertex_count)
+                        vx = cx + radius * math.cos(angle)
+                        vy = cy + radius * math.sin(angle)
+                        glVertex2f(vx, vy)
+                    glEnd()
+                else:
+                    assert False
+            glPopMatrix()
 
     def on_key_press(self, key, modifiers):
         self._player_actor.controls.on_key_press(key, modifiers)
@@ -289,6 +330,7 @@ class MyWindow(pyglet.window.Window):
         self._time = 0.0
         self._dt = 1.0 / 60.0
         pyglet.clock.schedule_interval(self._step, 0.1 * self._dt)
+        self._clock_display = pyglet.clock.ClockDisplay()
 
     def close(self):
         pyglet.clock.unschedule(self._step)
@@ -305,6 +347,7 @@ class MyWindow(pyglet.window.Window):
     def on_draw(self):
         self.clear()
         self._game_engine.draw()
+        self._clock_display.draw()
 
     def on_key_press(self, key, modifiers):
         if key == pyglet.window.key.ESCAPE:
