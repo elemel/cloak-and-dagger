@@ -251,6 +251,9 @@ class CharacterActor(Actor):
         self.body.position += penetration * b2Vec2(normal)
 
         # TODO: Use normal when adjusting linear velocity.
+        #
+        # TODO: Use linear velocity in contact point when adjusting linear
+        # velocity.
         self.body.linearVelocity = self.body.linearVelocity.x, 0.0
 
         return 0.0
