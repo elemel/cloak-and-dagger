@@ -2,6 +2,10 @@ from Box2D import *
 import math
 import pyglet
 from pyglet.gl import *
+import sys
+
+def warn(line):
+    sys.stderr.write('WARNING: %s\n' % line)
 
 class Actor(object):
     def __init__(self, game_engine, stepping=False, drawing=False):
@@ -50,7 +54,16 @@ class Actor(object):
             else:
                 self.game_engine.remove_draw_actor(self)
 
-    def step(self, dt):
+    def begin_step(self, dt):
+        pass
+
+    def end_step(self, dt):
+        pass
+
+    def begin_contact(self, contact):
+        pass
+
+    def end_contact(self, contact):
         pass
 
     def draw(self):
@@ -110,39 +123,51 @@ class LevelActor(Actor):
                                          drawing=True)
         self.half_tile_width = 0.5
         self.half_tile_height = 0.5
+        self.start_position = 0.0, 0.0
         level_name = 'resources/levels/level.txt'
         with pyglet.resource.file(level_name) as level_file:
             level_parser = LevelParser(level_file)
             self.tiles = level_parser.parse()
-        self.body = self.game_engine.world.CreateStaticBody()
+        self.body = self.game_engine.world.CreateStaticBody(userData=(self, None))
         for tile_position, tile_char in self.tiles.iteritems():
             tile_x, tile_y = tile_position
-            min_x = float(tile_x) - self.half_tile_width
-            min_y = float(tile_y) - self.half_tile_height
-            max_x = float(tile_x) + self.half_tile_width
-            max_y = float(tile_y) + self.half_tile_height
-            vertices = ((min_x, min_y), (max_x, min_y),
-                        (max_x, max_y), (min_x, max_y))
-            self.body.CreatePolygonFixture(vertices=vertices)
+            if tile_char == '^':
+                self.start_position = self.get_tile_center(tile_x, tile_y)
+            else:
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                vertices = ((min_x, min_y), (max_x, min_y),
+                            (max_x, max_y), (min_x, max_y))
+                self.body.CreatePolygonFixture(vertices=vertices, userData=(self, None))
+
+    def get_tile_center(self, ix, iy):
+        cx = 2.0 * ix * self.half_tile_width
+        cy = 2.0 * iy * self.half_tile_height
+        return cx, cy
+
+    def get_tile_bounds(self, ix, iy):
+        cx, cy = self.get_tile_center(ix, iy)
+        min_x = cx - self.half_tile_width
+        min_y = cy - self.half_tile_height
+        max_x = cx + self.half_tile_width
+        max_y = cy + self.half_tile_height
+        return min_x, min_y, max_x, max_y
 
     def draw(self):
         for tile_position, tile_char in self.tiles.iteritems():
             tile_x, tile_y = tile_position
 
             default_color = 1.0, 1.0, 1.0
-            tile_color = TILE_COLORS.get(tile_char, default_color)
-            glColor3f(*tile_color)
-
-            min_x = float(tile_x) - self.half_tile_width
-            min_y = float(tile_y) - self.half_tile_height
-            max_x = float(tile_x) + self.half_tile_width
-            max_y = float(tile_y) + self.half_tile_height
-            glBegin(GL_POLYGON)
-            glVertex2f(min_x, min_y)
-            glVertex2f(max_x, min_y)
-            glVertex2f(max_x, max_y)
-            glVertex2f(min_x, max_y)
-            glEnd()
+            tile_color = TILE_COLORS.get(tile_char)
+            if tile_color is not None:
+                glColor3f(*tile_color)
+    
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                glBegin(GL_POLYGON)
+                glVertex2f(min_x, min_y)
+                glVertex2f(max_x, min_y)
+                glVertex2f(max_x, max_y)
+                glVertex2f(min_x, max_y)
+                glEnd()
 
 class Controls(object):
     def on_activate(self):
@@ -169,6 +194,14 @@ class CharacterControls(Controls):
         if key == pyglet.window.key.DOWN:
             self.actor.state = self.actor.STAND_STATE
 
+class RayCastCallback(b2RayCastCallback):
+    def __init__(self, callback):
+        super(RayCastCallback, self).__init__()
+        self.callback = callback
+
+    def ReportFixture(self, fixture, point, normal, fraction):
+        return self.callback(fixture, point, normal, fraction)
+
 class CharacterActor(Actor):
     (
         CLIMB_STATE,
@@ -187,35 +220,55 @@ class CharacterActor(Actor):
         PULL_STATE,
         PUSH_STATE,
         WALL_SLIDE_STATE,
-    ) = xrange(16)
+    ) = xrange(1, 17)
 
-    def __init__(self, game_engine, x=0.0, y=0.0, color=(255, 255, 255)):
+    def __init__(self, game_engine, position=(0.0, 0.0),
+                 color=(255, 255, 255)):
         super(CharacterActor, self).__init__(game_engine, stepping=True,
                                              drawing=True)
-        self.x = x
-        self.y = y
         self.half_width = 0.3
         self.half_height = 0.8
         self.color = color
         self.state = self.STAND_STATE
         self.controls = CharacterControls(self)
-        radius = max(self.half_width, self.half_height)
-        self.body = game_engine.world.CreateDynamicBody(position=(x, y))
-        self.body.CreateCircleFixture(radius=radius)
-        
+        self.radius = max(self.half_width, self.half_height)
+        self.body = game_engine.world.CreateDynamicBody(position=position,
+                                                        userData=(self, None))
+        self.body.CreateCircleFixture(radius=self.radius, density=1.0,
+                                      isSensor=True, userData=(self, None))
+
+    def end_step(self, dt):
+        callback = RayCastCallback(self._on_ray_cast_callback)
+        p1 = b2Vec2(self.body.position)
+        p2 = self.body.position + (0.0, -self.radius)
+        self.game_engine.world.RayCast(callback, p1, p2)
+
+    def _on_ray_cast_callback(self, fixture, point, normal, fraction):
+        distance = (self.body.position - point).length
+        penetration = self.radius - distance
+
+        # TODO: Use normal implied by circle and direction.
+        self.body.position += penetration * b2Vec2(normal)
+
+        # TODO: Use normal when adjusting linear velocity.
+        self.body.linearVelocity = self.body.linearVelocity.x, 0.0
+
+        return 0.0
+
     def draw(self):
         glColor3ub(*self.color)
- 
+
+        x, y = self.body.position 
         if self.state == self.CROUCH_STATE:
             half_width = 0.4
             half_height = 0.4
         else:
             half_width = self.half_width
             half_height = self.half_height
-        min_x = self.x - half_width
-        min_y = self.y - half_height
-        max_x = self.x + half_width
-        max_y = self.y + half_height
+        min_x = x - half_width
+        min_y = y - half_height
+        max_x = x + half_width
+        max_y = y + half_height
         glBegin(GL_POLYGON)
         glVertex2f(min_x, min_y)
         glVertex2f(max_x, min_y)
@@ -223,18 +276,44 @@ class CharacterActor(Actor):
         glVertex2f(min_x, max_y)
         glEnd()
 
+def generate_circle_vertices(center=(0.0, 0.0), radius=1.0, angle=0.0,
+                             vertex_count=256):
+    cx, cy = center
+    for i in xrange(vertex_count):
+        vertex_angle = angle + 2.0 * math.pi * float(i) / float(vertex_count)
+        vx = cx + radius * math.cos(vertex_angle)
+        vy = cy + radius * math.sin(vertex_angle)
+        yield vx, vy
+
+class MyContactListener(b2ContactListener):
+    def BeginContact(self, contact):
+        actor_a, key_a = contact.fixtureA.userData
+        actor_b, key_b = contact.fixtureB.userData
+        actor_a.begin_contact(contact)
+        actor_b.begin_contact(contact)
+
+    def EndContact(self, contact):
+        actor_a, key_a = contact.fixtureA.userData
+        actor_b, key_b = contact.fixtureB.userData
+        actor_a.end_contact(contact)
+        actor_b.end_contact(contact)
+
 class GameEngine(object):
     def __init__(self, view_width, view_height):
         self._view_width = view_width
         self._view_height = view_height
         self._time = 0.0
         self._world = b2World(gravity=(0.0, -10.0))
+        self._contact_listener = MyContactListener()
+        self._world.contactListener = self._contact_listener
         self._actors = set()
         self._step_actors = set()
         self._draw_actors = set()
         self._camera_scale = float(view_height) / 10.0
         self._level_actor = LevelActor(self)
-        self._player_actor = CharacterActor(self, x=-3.5, y=-2.75)
+        position = self._level_actor.start_position
+        self._player_actor = CharacterActor(self, position=position)
+        self._circle_vertices = list(generate_circle_vertices())
 
     @property
     def time(self):
@@ -272,20 +351,24 @@ class GameEngine(object):
     def step(self, dt):
         self._time += dt
         for actor in list(self._step_actors):
-            actor.step(dt)
+            actor.begin_step(dt)
         self._world.Step(dt, 10, 10)
+        for actor in list(self._step_actors):
+            actor.end_step(dt)
 
     def draw(self):
         glPushMatrix()
         glTranslatef(self._view_width // 2, self._view_height // 2, 0)
         glScalef(self._camera_scale, self._camera_scale, self._camera_scale)
-        glTranslatef(-self._player_actor.x, -self._player_actor.y, 0.0)
+        x, y = self._player_actor.body.position
+        glTranslatef(-x, -y, 0.0)
         for actor in list(self._draw_actors):
             actor.draw()
         self._debug_draw()
         glPopMatrix()
 
     def _debug_draw(self):
+        glColor3f(0.0, 1.0, 0.0)
         for body in self.world.bodies:
             glPushMatrix()
             x, y = body.position
@@ -303,12 +386,13 @@ class GameEngine(object):
                     cx, cy = shape.pos
                     radius = shape.radius
                     glBegin(GL_LINE_LOOP)
-                    vertex_count = 16
-                    for i in xrange(vertex_count):
-                        angle = 2.0 * math.pi * float(i) / float(vertex_count)
-                        vx = cx + radius * math.cos(angle)
-                        vy = cy + radius * math.sin(angle)
-                        glVertex2f(vx, vy)
+                    stride = len(self._circle_vertices) / 16
+                    for vx, vy in self._circle_vertices[::stride]:
+                        glVertex2f(cx + radius * vx, cy + radius * vy)
+                    glEnd()
+                    glBegin(GL_LINES)
+                    glVertex2f(cx, cy)
+                    glVertex2f(cx + radius, cy)
                     glEnd()
                 else:
                     assert False
