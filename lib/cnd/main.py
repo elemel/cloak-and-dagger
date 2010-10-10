@@ -211,6 +211,8 @@ class CharacterControls(Controls):
         elif key == pyglet.window.key.RIGHT:
             self.actor.face = 1.0
             self.actor.state = self.actor.WALK_STATE
+        elif key == pyglet.window.key.SPACE:
+            self.actor.state = self.actor.JUMP_STATE
 
     def on_key_release(self, key, modifiers):
         self.keys.remove(key)
@@ -220,6 +222,8 @@ class CharacterControls(Controls):
             self.actor.state = self.actor.STAND_STATE
         elif key == pyglet.window.key.RIGHT:
             self.actor.state = self.actor.STAND_STATE
+        elif key == pyglet.window.key.SPACE:
+            pass
 
 class RayCastCallback(b2RayCastCallback):
     def __init__(self, callback):
@@ -273,7 +277,12 @@ class CharacterActor(Actor):
             vx += self.face * dt * self.walk_acceleration
             vx = sign(vx) * min(abs(vx), self.max_walk_velocity)
             self.body.linearVelocity = vx, vy
-        else:
+        elif self.state == self.JUMP_STATE:
+            self.state = self.FALL_STATE
+            vx, vy = self.body.linearVelocity
+            vy = 5.0
+            self.body.linearVelocity = vx, vy
+        elif self.state == self.STAND_STATE:
             vx, vy = self.body.linearVelocity
             sx = sign(vx)
             vx -= sx * dt * self.walk_acceleration
@@ -291,8 +300,6 @@ class CharacterActor(Actor):
         actor, user_data = fixture.userData
         if actor is self:
             return 1.0
-
-        print self.body.position, user_data
 
         distance = (self.body.position - point).length
         penetration = self.radius - distance
