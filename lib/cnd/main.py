@@ -4,16 +4,31 @@ import pyglet
 from pyglet.gl import *
 import sys
 
+def trace(line):
+    sys.stderr.write('TRACE: %s\n' % line)
+
+def debug(line):
+    sys.stderr.write('DEBUG: %s\n' % line)
+
+def info(line):
+    sys.stderr.write('INFO: %s\n' % line)
+
 def warn(line):
-    sys.stderr.write('WARNING: %s\n' % line)
+    sys.stderr.write('WARN: %s\n' % line)
+
+def error(line):
+    sys.stderr.write('ERROR: %s\n' % line)
+
+def fatal(line):
+    sys.stderr.write('FATAL: %s\n' % line)
 
 def sign(x):
-    if x < 0.0:
-        return -1.0
-    elif x > 0.0:
-        return 1.0
+    if x < 0:
+        return -1
+    elif x > 0:
+        return 1
     else:
-        return 0.0
+        return 0
 
 class Actor(object):
     def __init__(self, game_engine, stepping=False, drawing=False):
@@ -196,130 +211,170 @@ class Controls(object):
     def on_key_release(self, key, modifiers):
         pass
 
-class CharacterControls(Controls):
-    def __init__(self, actor):
-        self.actor = actor
-        self.keys = set()
-
-    def on_key_press(self, key, modifiers):
-        self.keys.add(key)
-        if key == pyglet.window.key.DOWN:
-            self.actor.state = self.actor.CROUCH_STATE
-        elif key == pyglet.window.key.LEFT:
-            self.actor.face = -1.0
-            self.actor.state = self.actor.WALK_STATE
-        elif key == pyglet.window.key.RIGHT:
-            self.actor.face = 1.0
-            self.actor.state = self.actor.WALK_STATE
-        elif key == pyglet.window.key.SPACE:
-            self.actor.state = self.actor.JUMP_STATE
-
-    def on_key_release(self, key, modifiers):
-        self.keys.remove(key)
-        if key == pyglet.window.key.DOWN:
-            self.actor.state = self.actor.STAND_STATE
-        elif key == pyglet.window.key.LEFT:
-            self.actor.state = self.actor.STAND_STATE
-        elif key == pyglet.window.key.RIGHT:
-            self.actor.state = self.actor.STAND_STATE
-        elif key == pyglet.window.key.SPACE:
-            pass
-
-class RayCastCallback(b2RayCastCallback):
-    def __init__(self, callback):
-        super(RayCastCallback, self).__init__()
-        self.callback = callback
+class ClosestRayCastCallback(b2RayCastCallback):
+    def __init__(self, filter=None):
+        super(ClosestRayCastCallback, self).__init__()
+        self.filter = filter
+        self.fixture = None
+        self.point = None
+        self.normal = None
+        self.fraction = None
 
     def ReportFixture(self, fixture, point, normal, fraction):
-        return self.callback(fixture, point, normal, fraction)
+        if ((self.fraction is None or fraction < self.fraction) and
+            (self.filter is None or self.filter(fixture))):
+            self.fixture = fixture
+            self.point = point
+            self.normal = normal
+            self.fraction = fraction
+        return 1.0
+
+class Enumeration(object):
+    def __init__(self, names):
+        self._names = tuple(names.split())
+        self._values = tuple(xrange(len(self._names)))
+        for name, value in zip(self._names, self._values):
+            setattr(self, name, value)
+
+    @property
+    def names(self):
+        return self._names
+
+    @property
+    def values(self):
+        return self._values
 
 class CharacterActor(Actor):
-    (
-        CLIMB_STATE,
-        CRAWL_STATE,
-        CROUCH_STATE,
-        DEAD_STATE,
-        FALL_STATE,
-        FLOOR_SLIDE_STATE,
-        HANG_STATE,
-        HIDE_STATE,
-        LIE_STATE,
-        RUN_STATE,
-        STAND_STATE,
-        WALK_STATE,
-        JUMP_STATE,
-        PULL_STATE,
-        PUSH_STATE,
-        WALL_SLIDE_STATE,
-    ) = xrange(1, 17)
+    states = Enumeration("""
+        CLIMB
+        CRAWL
+        CROUCH
+        DEAD
+        HANG
+        JUMP
+        PUSH
+        RUN
+        SLIDE
+        STAND
+        WALK
+    """)
 
-    def __init__(self, game_engine, position=(0.0, 0.0),
+    air_states = states.CLIMB, states.HANG, states.JUMP
+    ground_states = (states.CRAWL, states.CROUCH, states.PUSH, states.RUN,
+                     states.STAND, states.WALK)
+
+    def __init__(self, game_engine, name='UNKNOWN', position=(0.0, 0.0),
                  color=(255, 255, 255)):
         super(CharacterActor, self).__init__(game_engine, stepping=True,
                                              drawing=True)
-        self.face = 1.0
-        self.walk_acceleration = 15.0
+        self.name = name
+        self.face = 1
+        self.walk_acceleration = 10.0
         self.max_walk_velocity = 5.0
+        self.drift_acceleration = 5.0
+        self.max_drift_velocity = 2.0
+        self.jump_velocity = 8.0
         self.half_width = 0.3
         self.half_height = 0.8
         self.color = color
-        self.state = self.STAND_STATE
-        self.controls = CharacterControls(self)
+        self._state = self.states.STAND
         self.radius = max(self.half_width, self.half_height)
         self.body = game_engine.world.CreateDynamicBody(position=position,
                                                         userData=(self, None))
         self.body.CreateCircleFixture(radius=self.radius, density=1.0,
                                       isSensor=True, userData=(self, None))
 
+        self.left = False
+        self.right = False
+        self.up = False
+        self.down = False
+        self.jump = False
+
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, state):
+        if state != self._state:
+            debug('Character %s changes state from %s to %s.' %
+                  (self.name, self.states.names[self._state],
+                   self.states.names[state]))
+        self._state = state
+
     def begin_step(self, dt):
-        if self.state == self.WALK_STATE:
+        self._step_face()
+        self._step_jump()
+        if self.state == self.states.STAND and self.right - self.left:
+            self.state = self.states.WALK
+        if self.state == self.states.WALK and not self.right - self.left:
+            self.state = self.states.STAND
+
+        if self.state == self.states.WALK:
             vx, vy = self.body.linearVelocity
             vx += self.face * dt * self.walk_acceleration
             vx = sign(vx) * min(abs(vx), self.max_walk_velocity)
             self.body.linearVelocity = vx, vy
-        elif self.state == self.JUMP_STATE:
-            self.state = self.FALL_STATE
-            vx, vy = self.body.linearVelocity
-            vy = 5.0
-            self.body.linearVelocity = vx, vy
-        elif self.state == self.STAND_STATE:
+        if self.state == self.states.STAND:
             vx, vy = self.body.linearVelocity
             sx = sign(vx)
             vx -= sx * dt * self.walk_acceleration
             if sign(vx) != sx:
                 vx = 0.0
             self.body.linearVelocity = vx, vy
+        if self.state == self.states.JUMP:
+            if self.left or self.right:
+                vx, vy = self.body.linearVelocity
+                if sign(vx) == self.right - self.left:
+                    vx2 = vx + (self.right - self.left) * dt * self.drift_acceleration
+                    vx2 = sign(vx2) * min(abs(vx2), self.max_drift_velocity)
+                    vx = sign(vx) * max(abs(vx), abs(vx2))
+                else:
+                    vx += (self.right - self.left) * dt * self.drift_acceleration
+                self.body.linearVelocity = vx, vy
+
+    def _step_face(self):
+        if self.right - self.left:
+            self.face = self.right - self.left
+
+    def _step_jump(self):
+        if self.jump and self.state in self.ground_states:
+            self.state = self.states.JUMP
+            vx, vy = self.body.linearVelocity
+            vy = self.jump_velocity
+            self.body.linearVelocity = vx, vy
 
     def end_step(self, dt):
-        callback = RayCastCallback(self._on_ray_cast_callback)
-        p1 = self.body.position
-        p2 = self.body.position + (0.0, -self.radius)
+        self._step_ground()
+
+    def _step_ground(self):
+        callback = ClosestRayCastCallback()
+        x, y = self.body.position
+        p1 = x, y
+        length = self.radius + 0.75
+        p2 = x, y - length
         self.game_engine.world.RayCast(callback, p1, p2)
-
-    def _on_ray_cast_callback(self, fixture, point, normal, fraction):
-        actor, user_data = fixture.userData
-        if actor is self:
-            return 1.0
-
-        distance = (self.body.position - point).length
-        penetration = self.radius - distance
-
-        # TODO: Use normal implied by circle and direction.
-        self.body.position += penetration * b2Vec2(normal)
-
-        # TODO: Use normal when adjusting linear velocity.
-        #
-        # TODO: Use linear velocity in contact point when adjusting linear
-        # velocity.
-        self.body.linearVelocity = self.body.linearVelocity.x, 0.0
-
-        return fraction
+        if callback.fixture is None:
+            if self.state in self.ground_states:
+                self.state = self.states.JUMP
+        else:
+            distance = callback.fraction * length
+            vx, vy = self.body.linearVelocity
+            sticky = False
+            if (self.state in self.ground_states or
+                self.state in self.air_states and vy < 0.0 and
+                distance < self.radius):
+                x3, y3 = callback.point
+                self.body.position = x, y3 + self.radius
+                self.body.linearVelocity = vx, 0.0
+                if self.state in self.air_states:
+                    self.state = self.states.STAND
 
     def draw(self):
         glColor3ub(*self.color)
 
-        x, y = self.body.position 
-        if self.state == self.CROUCH_STATE:
+        x, y = self.body.position
+        if self.state == self.states.CROUCH:
             half_width = 0.4
             half_height = 0.4
         else:
@@ -335,6 +390,30 @@ class CharacterActor(Actor):
         glVertex2f(max_x, max_y)
         glVertex2f(min_x, max_y)
         glEnd()
+
+    def on_key_press(self, key, modifiers):
+        if key == pyglet.window.key.LEFT:
+            self.left = True
+        if key == pyglet.window.key.RIGHT:
+            self.right = True
+        if key == pyglet.window.key.UP:
+            self.up = True
+        if key == pyglet.window.key.DOWN:
+            self.down = True
+        if key == pyglet.window.key.SPACE:
+            self.jump = True
+
+    def on_key_release(self, key, modifiers):
+        if key == pyglet.window.key.LEFT:
+            self.left = False
+        if key == pyglet.window.key.RIGHT:
+            self.right = False
+        if key == pyglet.window.key.UP:
+            self.up = False
+        if key == pyglet.window.key.DOWN:
+            self.down = False
+        if key == pyglet.window.key.SPACE:
+            self.jump = False
 
 def generate_circle_vertices(center=(0.0, 0.0), radius=1.0, angle=0.0,
                              vertex_count=256):
@@ -363,16 +442,17 @@ class GameEngine(object):
         self._view_width = view_width
         self._view_height = view_height
         self._time = 0.0
-        self._world = b2World(gravity=(0.0, -10.0))
+        self._world = b2World(gravity=(0.0, -13.0))
         self._contact_listener = MyContactListener()
         self._world.contactListener = self._contact_listener
         self._actors = set()
         self._step_actors = set()
         self._draw_actors = set()
-        self._camera_scale = float(view_height) / 10.0
+        self._camera_scale = float(view_height) / 20.0
         self._level_actor = LevelActor(self)
         position = self._level_actor.start_position
-        self._player_actor = CharacterActor(self, position=position)
+        self._player_actor = CharacterActor(self, name='THIEF',
+                                            position=position)
         self._circle_vertices = list(generate_circle_vertices())
 
     @property
@@ -459,10 +539,10 @@ class GameEngine(object):
             glPopMatrix()
 
     def on_key_press(self, key, modifiers):
-        self._player_actor.controls.on_key_press(key, modifiers)
+        self._player_actor.on_key_press(key, modifiers)
 
     def on_key_release(self, key, modifiers):
-        self._player_actor.controls.on_key_release(key, modifiers)
+        self._player_actor.on_key_release(key, modifiers)
 
 class MyWindow(pyglet.window.Window):
     def __init__(self, **kwargs):
@@ -506,7 +586,8 @@ class MyWindow(pyglet.window.Window):
             self._game_engine.on_key_release(key, modifiers)
 
 def main():
-    window = MyWindow()
+    fullscreen = '--fullscreen' in sys.argv
+    window = MyWindow(fullscreen=fullscreen)
     pyglet.app.run()
 
 if __name__ == '__main__':
