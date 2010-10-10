@@ -7,6 +7,14 @@ import sys
 def warn(line):
     sys.stderr.write('WARNING: %s\n' % line)
 
+def sign(x):
+    if x < 0.0:
+        return -1.0
+    elif x > 0.0:
+        return 1.0
+    else:
+        return 0.0
+
 class Actor(object):
     def __init__(self, game_engine, stepping=False, drawing=False):
         self._game_engine = game_engine
@@ -129,45 +137,51 @@ class LevelActor(Actor):
             level_parser = LevelParser(level_file)
             self.tiles = level_parser.parse()
         self.body = self.game_engine.world.CreateStaticBody(userData=(self, None))
+        self._init_tiles()
+
+    def _init_tiles(self):
         for tile_position, tile_char in self.tiles.iteritems():
             tile_x, tile_y = tile_position
             if tile_char == '^':
                 self.start_position = self.get_tile_center(tile_x, tile_y)
+            elif tile_char == '/':
+                center_x, center_y = self.get_tile_center(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                vertices_1 = ((min_x, min_y), (max_x, min_y),
+                              (max_x, center_y), (min_x, center_y))
+                vertices_2 = ((center_x, center_y), (max_x, center_y),
+                              (max_x, max_y), (center_x, max_y))
+                user_data = self, (tile_position, tile_char)
+                self.body.CreatePolygonFixture(vertices=vertices_1, userData=user_data)
+                self.body.CreatePolygonFixture(vertices=vertices_2, userData=user_data)
+            elif tile_char == '\\':
+                center_x, center_y = self.get_tile_center(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                vertices_1 = ((min_x, min_y), (max_x, min_y),
+                              (max_x, center_y), (min_x, center_y))
+                vertices_2 = ((min_x, center_y), (center_x, center_y),
+                              (center_x, max_y), (min_x, max_y))
+                user_data = self, (tile_position, tile_char)
+                self.body.CreatePolygonFixture(vertices=vertices_1, userData=user_data)
+                self.body.CreatePolygonFixture(vertices=vertices_2, userData=user_data)
             else:
                 min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
                 vertices = ((min_x, min_y), (max_x, min_y),
                             (max_x, max_y), (min_x, max_y))
-                self.body.CreatePolygonFixture(vertices=vertices, userData=(self, None))
+                self.body.CreatePolygonFixture(vertices=vertices, userData=(self, (tile_position, tile_char)))
 
-    def get_tile_center(self, ix, iy):
-        cx = 2.0 * ix * self.half_tile_width
-        cy = 2.0 * iy * self.half_tile_height
-        return cx, cy
+    def get_tile_center(self, tile_x, tile_y):
+        center_x = 2.0 * tile_x * self.half_tile_width
+        center_y = 2.0 * tile_y * self.half_tile_height
+        return center_x, center_y
 
-    def get_tile_bounds(self, ix, iy):
-        cx, cy = self.get_tile_center(ix, iy)
-        min_x = cx - self.half_tile_width
-        min_y = cy - self.half_tile_height
-        max_x = cx + self.half_tile_width
-        max_y = cy + self.half_tile_height
+    def get_tile_bounds(self, tile_x, tile_y):
+        center_x, center_y = self.get_tile_center(tile_x, tile_y)
+        min_x = center_x - self.half_tile_width
+        min_y = center_y - self.half_tile_height
+        max_x = center_x + self.half_tile_width
+        max_y = center_y + self.half_tile_height
         return min_x, min_y, max_x, max_y
-
-    def draw(self):
-        for tile_position, tile_char in self.tiles.iteritems():
-            tile_x, tile_y = tile_position
-
-            default_color = 1.0, 1.0, 1.0
-            tile_color = TILE_COLORS.get(tile_char)
-            if tile_color is not None:
-                glColor3f(*tile_color)
-    
-                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
-                glBegin(GL_POLYGON)
-                glVertex2f(min_x, min_y)
-                glVertex2f(max_x, min_y)
-                glVertex2f(max_x, max_y)
-                glVertex2f(min_x, max_y)
-                glEnd()
 
 class Controls(object):
     def on_activate(self):
@@ -185,13 +199,26 @@ class Controls(object):
 class CharacterControls(Controls):
     def __init__(self, actor):
         self.actor = actor
+        self.keys = set()
 
     def on_key_press(self, key, modifiers):
+        self.keys.add(key)
         if key == pyglet.window.key.DOWN:
             self.actor.state = self.actor.CROUCH_STATE
+        elif key == pyglet.window.key.LEFT:
+            self.actor.face = -1.0
+            self.actor.state = self.actor.WALK_STATE
+        elif key == pyglet.window.key.RIGHT:
+            self.actor.face = 1.0
+            self.actor.state = self.actor.WALK_STATE
 
     def on_key_release(self, key, modifiers):
+        self.keys.remove(key)
         if key == pyglet.window.key.DOWN:
+            self.actor.state = self.actor.STAND_STATE
+        elif key == pyglet.window.key.LEFT:
+            self.actor.state = self.actor.STAND_STATE
+        elif key == pyglet.window.key.RIGHT:
             self.actor.state = self.actor.STAND_STATE
 
 class RayCastCallback(b2RayCastCallback):
@@ -226,6 +253,9 @@ class CharacterActor(Actor):
                  color=(255, 255, 255)):
         super(CharacterActor, self).__init__(game_engine, stepping=True,
                                              drawing=True)
+        self.face = 1.0
+        self.walk_acceleration = 15.0
+        self.max_walk_velocity = 5.0
         self.half_width = 0.3
         self.half_height = 0.8
         self.color = color
@@ -237,13 +267,33 @@ class CharacterActor(Actor):
         self.body.CreateCircleFixture(radius=self.radius, density=1.0,
                                       isSensor=True, userData=(self, None))
 
+    def begin_step(self, dt):
+        if self.state == self.WALK_STATE:
+            vx, vy = self.body.linearVelocity
+            vx += self.face * dt * self.walk_acceleration
+            vx = sign(vx) * min(abs(vx), self.max_walk_velocity)
+            self.body.linearVelocity = vx, vy
+        else:
+            vx, vy = self.body.linearVelocity
+            sx = sign(vx)
+            vx -= sx * dt * self.walk_acceleration
+            if sign(vx) != sx:
+                vx = 0.0
+            self.body.linearVelocity = vx, vy
+
     def end_step(self, dt):
         callback = RayCastCallback(self._on_ray_cast_callback)
-        p1 = b2Vec2(self.body.position)
+        p1 = self.body.position
         p2 = self.body.position + (0.0, -self.radius)
         self.game_engine.world.RayCast(callback, p1, p2)
 
     def _on_ray_cast_callback(self, fixture, point, normal, fraction):
+        actor, user_data = fixture.userData
+        if actor is self:
+            return 1.0
+
+        print self.body.position, user_data
+
         distance = (self.body.position - point).length
         penetration = self.radius - distance
 
@@ -256,7 +306,7 @@ class CharacterActor(Actor):
         # velocity.
         self.body.linearVelocity = self.body.linearVelocity.x, 0.0
 
-        return 0.0
+        return fraction
 
     def draw(self):
         glColor3ub(*self.color)

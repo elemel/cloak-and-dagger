@@ -1,4 +1,4 @@
-              abcdefg
-              h  ijklm
-     ^        n  opqrst
+                /cdefg
+               / ijklm
+     ^  /a\   /  opqrst
 aaaaaaaaaaaaaaaaaaaaaaaa
