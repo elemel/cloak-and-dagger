@@ -161,7 +161,8 @@ class LevelActor(Actor):
                 self.start_position = self.get_tile_center(tile_x, tile_y)
             elif tile_char == '/':
                 center_x, center_y = self.get_tile_center(tile_x, tile_y)
-                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x,
+                                                                  tile_y)
                 vertices_1 = ((min_x, min_y), (max_x, min_y),
                               (max_x, center_y), (min_x, center_y))
                 vertices_2 = ((center_x, center_y), (max_x, center_y),
@@ -173,7 +174,8 @@ class LevelActor(Actor):
                                                userData=user_data)
             elif tile_char == '\\':
                 center_x, center_y = self.get_tile_center(tile_x, tile_y)
-                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x,
+                                                                  tile_y)
                 vertices_1 = ((min_x, min_y), (max_x, min_y),
                               (max_x, center_y), (min_x, center_y))
                 vertices_2 = ((min_x, center_y), (center_x, center_y),
@@ -185,7 +187,8 @@ class LevelActor(Actor):
                                                userData=user_data)
             elif tile_char == '_':
                 center_x, center_y = self.get_tile_center(tile_x, tile_y)
-                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x,
+                                                                  tile_y)
                 vertices = ((min_x, min_y), (max_x, min_y),
                             (max_x, center_y), (min_x, center_y))
                 user_data = self, (tile_position, tile_char)
@@ -193,14 +196,24 @@ class LevelActor(Actor):
                                                userData=user_data)
             elif tile_char == '^':
                 center_x, center_y = self.get_tile_center(tile_x, tile_y)
-                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x,
+                                                                  tile_y)
                 vertices = ((min_x, center_y), (max_x, center_y),
                             (max_x, max_y), (min_x, max_y))
                 user_data = self, (tile_position, tile_char)
                 self.body.CreatePolygonFixture(vertices=vertices,
                                                userData=user_data)
+            elif tile_char == '=':
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x,
+                                                                  tile_y)
+                vertices = ((min_x, min_y), (max_x, min_y),
+                            (max_x, max_y), (min_x, max_y))
+                user_data = self, (tile_position, tile_char)
+                self.body.CreatePolygonFixture(vertices=vertices,
+                                               userData=user_data)
             else:
-                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x,
+                                                                  tile_y)
                 vertices = ((min_x, min_y), (max_x, min_y),
                             (max_x, max_y), (min_x, max_y))
                 user_data = self, (tile_position, tile_char)
