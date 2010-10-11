@@ -272,12 +272,14 @@ class CharacterActor(Actor):
         CRAWL
         CROUCH
         DEAD
+        DIVE
         HANG
         JUMP
         PUSH
         RUN
         SLIDE
         STAND
+        SWIM
         WALK
     """)
 
@@ -295,7 +297,8 @@ class CharacterActor(Actor):
         self.max_walk_velocity = 5.0
         self.drift_acceleration = 5.0
         self.max_drift_velocity = 2.0
-        self.jump_velocity = 8.0
+        self.min_jump_velocity = 7.0
+        self.max_jump_velocity = 9.0
         self.half_width = 0.3
         self.half_height = 0.8
         self.color = color
@@ -363,7 +366,11 @@ class CharacterActor(Actor):
         if self.jump and self.state in self.ground_states:
             self.state = self.states.JUMP
             vx, vy = self.body.linearVelocity
-            vy = self.jump_velocity
+            ratio = abs(vx) / self.max_walk_velocity
+            ratio = min(ratio, 1.0)
+            ratio **= 2
+            vy = (ratio * self.min_jump_velocity +
+                  (1.0 - ratio) * self.max_jump_velocity)
             self.body.linearVelocity = vx, vy
 
     def end_step(self, dt):
