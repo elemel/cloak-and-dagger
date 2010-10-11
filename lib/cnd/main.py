@@ -157,7 +157,7 @@ class LevelActor(Actor):
     def _init_tiles(self):
         for tile_position, tile_char in self.tiles.iteritems():
             tile_x, tile_y = tile_position
-            if tile_char == '^':
+            if tile_char == '@':
                 self.start_position = self.get_tile_center(tile_x, tile_y)
             elif tile_char == '/':
                 center_x, center_y = self.get_tile_center(tile_x, tile_y)
@@ -167,8 +167,10 @@ class LevelActor(Actor):
                 vertices_2 = ((center_x, center_y), (max_x, center_y),
                               (max_x, max_y), (center_x, max_y))
                 user_data = self, (tile_position, tile_char)
-                self.body.CreatePolygonFixture(vertices=vertices_1, userData=user_data)
-                self.body.CreatePolygonFixture(vertices=vertices_2, userData=user_data)
+                self.body.CreatePolygonFixture(vertices=vertices_1,
+                                               userData=user_data)
+                self.body.CreatePolygonFixture(vertices=vertices_2,
+                                               userData=user_data)
             elif tile_char == '\\':
                 center_x, center_y = self.get_tile_center(tile_x, tile_y)
                 min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
@@ -177,13 +179,33 @@ class LevelActor(Actor):
                 vertices_2 = ((min_x, center_y), (center_x, center_y),
                               (center_x, max_y), (min_x, max_y))
                 user_data = self, (tile_position, tile_char)
-                self.body.CreatePolygonFixture(vertices=vertices_1, userData=user_data)
-                self.body.CreatePolygonFixture(vertices=vertices_2, userData=user_data)
+                self.body.CreatePolygonFixture(vertices=vertices_1,
+                                               userData=user_data)
+                self.body.CreatePolygonFixture(vertices=vertices_2,
+                                               userData=user_data)
+            elif tile_char == '_':
+                center_x, center_y = self.get_tile_center(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                vertices = ((min_x, min_y), (max_x, min_y),
+                            (max_x, center_y), (min_x, center_y))
+                user_data = self, (tile_position, tile_char)
+                self.body.CreatePolygonFixture(vertices=vertices,
+                                               userData=user_data)
+            elif tile_char == '^':
+                center_x, center_y = self.get_tile_center(tile_x, tile_y)
+                min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
+                vertices = ((min_x, center_y), (max_x, center_y),
+                            (max_x, max_y), (min_x, max_y))
+                user_data = self, (tile_position, tile_char)
+                self.body.CreatePolygonFixture(vertices=vertices,
+                                               userData=user_data)
             else:
                 min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x, tile_y)
                 vertices = ((min_x, min_y), (max_x, min_y),
                             (max_x, max_y), (min_x, max_y))
-                self.body.CreatePolygonFixture(vertices=vertices, userData=(self, (tile_position, tile_char)))
+                user_data = self, (tile_position, tile_char)
+                self.body.CreatePolygonFixture(vertices=vertices,
+                                               userData=user_data)
 
     def get_tile_center(self, tile_x, tile_y):
         center_x = 2.0 * tile_x * self.half_tile_width
@@ -587,7 +609,7 @@ class MyWindow(pyglet.window.Window):
 
 def main():
     fullscreen = '--fullscreen' in sys.argv
-    window = MyWindow(fullscreen=fullscreen)
+    window = MyWindow(caption='Cloak & Dagger', fullscreen=fullscreen)
     pyglet.app.run()
 
 if __name__ == '__main__':

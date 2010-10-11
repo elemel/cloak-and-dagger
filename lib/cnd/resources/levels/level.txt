@@ -1,4 +1,4 @@
                 /cdef
-               / ijklm
-     ^  /a\   /  opq
-aaaaaaaaaaaaaaaaaaaaaaaa
+         _     / ij^^^^^
+   @    /a\___/  op
+#####__############_______##
