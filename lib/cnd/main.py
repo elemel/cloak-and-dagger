@@ -92,6 +92,9 @@ class Actor(object):
     def draw(self):
         pass
 
+    def debug_draw(self):
+        pass
+
 class TabInLevelError(Exception):
     pass
 
@@ -305,7 +308,7 @@ class CharacterActor(Actor):
                      states.STAND, states.WALK)
 
     def __init__(self, game_engine, name='UNKNOWN', position=(0.0, 0.0),
-                 color=(255, 255, 255)):
+                 debug_color=(0, 255, 0)):
         super(CharacterActor, self).__init__(game_engine, stepping=True,
                                              drawing=True)
         self.name = name
@@ -318,7 +321,7 @@ class CharacterActor(Actor):
         self.max_jump_velocity = 9.0
         self.half_width = 0.3
         self.half_height = 0.8
-        self.color = color
+        self.debug_color = debug_color
         self._state = self.states.STAND
         self.radius = max(self.half_width, self.half_height)
         self.body = game_engine.world.CreateDynamicBody(position=position,
@@ -416,8 +419,8 @@ class CharacterActor(Actor):
                 if self.state in self.air_states:
                     self.state = self.states.STAND
 
-    def draw(self):
-        glColor3ub(*self.color)
+    def debug_draw(self):
+        glColor3ub(*self.debug_color)
 
         x, y = self.body.position
         if self.state == self.states.CROUCH:
@@ -491,19 +494,19 @@ class GameEngine(object):
         self._world = b2World(gravity=(0.0, -13.0))
         self._contact_listener = MyContactListener()
         self._world.contactListener = self._contact_listener
-        self._actors = set()
-        self._step_actors = set()
-        self._draw_actors = set()
+        self._actors = []
+        self._step_actors = []
+        self._draw_actors = []
         self._camera_scale = float(view_height) / 20.0
         self._level_actor = LevelActor(self)
         player_position = self._level_actor.player_position
         self._player_actor = CharacterActor(self, name='THIEF',
                                             position=player_position,
-                                            color=(0, 127, 255))
+                                            debug_color=(0, 127, 255))
         for i, guard_position in enumerate(self._level_actor.guard_positions):
             guard_name = 'GUARD_%s' % i
             CharacterActor(self, name=guard_name, position=guard_position,
-                           color=(255, 127, 0))
+                           debug_color=(255, 127, 0))
         self._circle_vertices = list(generate_circle_vertices())
 
     @property
@@ -515,36 +518,36 @@ class GameEngine(object):
         return self._world
 
     def delete(self):
-        for actor in list(self._actors):
+        for actor in self._actors[:]:
             actor.delete()
         assert not self._draw_actors
         assert not self._step_actors
         assert not self._actors
 
     def add_actor(self, actor):
-        self._actors.add(actor)
+        self._actors.append(actor)
 
     def remove_actor(self, actor):
         self._actors.remove(actor)
 
     def add_step_actor(self, actor):
-        self._step_actors.add(actor)
+        self._step_actors.append(actor)
 
     def remove_step_actor(self, actor):
         self._step_actors.remove(actor)
 
     def add_draw_actor(self, actor):
-        self._draw_actors.add(actor)
+        self._draw_actors.append(actor)
 
     def remove_draw_actor(self, actor):
         self._draw_actors.remove(actor)
 
     def step(self, dt):
         self._time += dt
-        for actor in list(self._step_actors):
+        for actor in self._step_actors[:]:
             actor.begin_step(dt)
         self._world.Step(dt, 10, 10)
-        for actor in list(self._step_actors):
+        for actor in self._step_actors[:]:
             actor.end_step(dt)
 
     def draw(self):
@@ -553,13 +556,17 @@ class GameEngine(object):
         glScalef(self._camera_scale, self._camera_scale, self._camera_scale)
         x, y = self._player_actor.body.position
         glTranslatef(-x, -y, 0.0)
-        for actor in list(self._draw_actors):
+        for actor in self._draw_actors:
             actor.draw()
         self._debug_draw()
         glPopMatrix()
 
     def _debug_draw(self):
-        glColor3f(0.0, 1.0, 0.0)
+        self._debug_draw_shapes()
+        self._debug_draw_actors()
+
+    def _debug_draw_shapes(self):
+        glColor3ub(0, 127, 0)
         for body in self.world.bodies:
             glPushMatrix()
             x, y = body.position
@@ -588,6 +595,10 @@ class GameEngine(object):
                 else:
                     assert False
             glPopMatrix()
+
+    def _debug_draw_actors(self):
+        for actor in self._actors:
+            actor.debug_draw()
 
     def on_key_press(self, key, modifiers):
         self._player_actor.on_key_press(key, modifiers)
