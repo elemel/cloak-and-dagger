@@ -146,7 +146,8 @@ class LevelActor(Actor):
                                          drawing=True)
         self.half_tile_width = 0.5
         self.half_tile_height = 0.5
-        self.start_position = 0.0, 0.0
+        self.player_position = 0.0, 0.0
+        self.guard_positions = []
         level_name = 'resources/levels/level.txt'
         with pyglet.resource.file(level_name) as level_file:
             level_parser = LevelParser(level_file)
@@ -158,7 +159,10 @@ class LevelActor(Actor):
         for tile_position, tile_char in self.tiles.iteritems():
             tile_x, tile_y = tile_position
             if tile_char == '@':
-                self.start_position = self.get_tile_center(tile_x, tile_y)
+                self.player_position = self.get_tile_center(tile_x, tile_y)
+            elif tile_char == '%':
+                guard_position = self.get_tile_center(tile_x, tile_y)
+                self.guard_positions.append(guard_position)
             elif tile_char == '/':
                 center_x, center_y = self.get_tile_center(tile_x, tile_y)
                 min_x, min_y, max_x, max_y = self.get_tile_bounds(tile_x,
@@ -492,9 +496,14 @@ class GameEngine(object):
         self._draw_actors = set()
         self._camera_scale = float(view_height) / 20.0
         self._level_actor = LevelActor(self)
-        position = self._level_actor.start_position
+        player_position = self._level_actor.player_position
         self._player_actor = CharacterActor(self, name='THIEF',
-                                            position=position)
+                                            position=player_position,
+                                            color=(0, 127, 255))
+        for i, guard_position in enumerate(self._level_actor.guard_positions):
+            guard_name = 'GUARD_%s' % i
+            CharacterActor(self, name=guard_name, position=guard_position,
+                           color=(255, 127, 0))
         self._circle_vertices = list(generate_circle_vertices())
 
     @property
