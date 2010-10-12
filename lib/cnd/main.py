@@ -328,6 +328,14 @@ class CharacterActor(Actor):
         self.ai = None
 
     @property
+    def face_left(self):
+        return self.face < 0
+
+    @property
+    def face_right(self):
+        return self.face > 0
+
+    @property
     def state(self):
         return self._state
 
@@ -425,11 +433,21 @@ class CharacterActor(Actor):
         min_y = y - half_height
         max_x = x + half_width
         max_y = y + half_height
-        glBegin(GL_POLYGON)
+        glBegin(GL_QUADS)
         glVertex2f(min_x, min_y)
         glVertex2f(max_x, min_y)
         glVertex2f(max_x, max_y)
         glVertex2f(min_x, max_y)
+        if self.face_left:
+            glVertex2f(min_x - 0.2, max_y - 0.2)
+            glVertex2f(min_x, max_y - 0.2)
+            glVertex2f(min_x, max_y)
+            glVertex2f(min_x - 0.2, max_y)
+        else:
+            glVertex2f(max_x, max_y - 0.2)
+            glVertex2f(max_x + 0.2, max_y - 0.2)
+            glVertex2f(max_x + 0.2, max_y)
+            glVertex2f(max_x, max_y)
         glEnd()
 
 def generate_circle_vertices(center=(0.0, 0.0), radius=1.0, angle=0.0,
