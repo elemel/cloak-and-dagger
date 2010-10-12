@@ -241,17 +241,40 @@ class LevelActor(Actor):
         return min_x, min_y, max_x, max_y
 
 class Controls(object):
-    def on_activate(self):
-        pass
-
-    def on_deactivate(self):
-        pass
-
     def on_key_press(self, key, modifiers):
         pass
 
     def on_key_release(self, key, modifiers):
         pass
+
+class CharacterControls(object):
+    def __init__(self, actor):
+        self._actor = actor
+
+    def on_key_press(self, key, modifiers):
+        if key == pyglet.window.key.LEFT:
+            self._actor.left = True
+        if key == pyglet.window.key.RIGHT:
+            self._actor.right = True
+        if key == pyglet.window.key.UP:
+            self._actor.up = True
+        if key == pyglet.window.key.DOWN:
+            self._actor.down = True
+        if key == pyglet.window.key.SPACE:
+            self._actor.jump = True
+
+    def on_key_release(self, key, modifiers):
+        if key == pyglet.window.key.LEFT:
+            self._actor.left = False
+        if key == pyglet.window.key.RIGHT:
+            self._actor.right = False
+        if key == pyglet.window.key.UP:
+            self._actor.up = False
+        if key == pyglet.window.key.DOWN:
+            self._actor.down = False
+        if key == pyglet.window.key.SPACE:
+            self._actor.jump = False
+
 
 class ClosestRayCastCallback(b2RayCastCallback):
     def __init__(self, filter=None):
@@ -273,7 +296,7 @@ class ClosestRayCastCallback(b2RayCastCallback):
 
 class Enumeration(object):
     def __init__(self, names):
-        self._names = tuple(names.split())
+        self._names = tuple(names)
         self._values = tuple(xrange(len(self._names)))
         for name, value in zip(self._names, self._values):
             setattr(self, name, value)
@@ -301,7 +324,7 @@ class CharacterActor(Actor):
         STAND
         SWIM
         WALK
-    """)
+    """.split())
 
     air_states = states.CLIMB, states.HANG, states.JUMP
     ground_states = (states.CRAWL, states.CROUCH, states.PUSH, states.RUN,
@@ -440,30 +463,6 @@ class CharacterActor(Actor):
         glVertex2f(min_x, max_y)
         glEnd()
 
-    def on_key_press(self, key, modifiers):
-        if key == pyglet.window.key.LEFT:
-            self.left = True
-        if key == pyglet.window.key.RIGHT:
-            self.right = True
-        if key == pyglet.window.key.UP:
-            self.up = True
-        if key == pyglet.window.key.DOWN:
-            self.down = True
-        if key == pyglet.window.key.SPACE:
-            self.jump = True
-
-    def on_key_release(self, key, modifiers):
-        if key == pyglet.window.key.LEFT:
-            self.left = False
-        if key == pyglet.window.key.RIGHT:
-            self.right = False
-        if key == pyglet.window.key.UP:
-            self.up = False
-        if key == pyglet.window.key.DOWN:
-            self.down = False
-        if key == pyglet.window.key.SPACE:
-            self.jump = False
-
 def generate_circle_vertices(center=(0.0, 0.0), radius=1.0, angle=0.0,
                              vertex_count=256):
     cx, cy = center
@@ -503,6 +502,7 @@ class GameEngine(object):
         self._player_actor = CharacterActor(self, name='THIEF',
                                             position=player_position,
                                             debug_color=(0, 127, 255))
+        self._player_controls = CharacterControls(self._player_actor)
         for i, guard_position in enumerate(self._level_actor.guard_positions):
             guard_name = 'GUARD_%s' % i
             CharacterActor(self, name=guard_name, position=guard_position,
@@ -601,10 +601,10 @@ class GameEngine(object):
             actor.debug_draw()
 
     def on_key_press(self, key, modifiers):
-        self._player_actor.on_key_press(key, modifiers)
+        self._player_controls.on_key_press(key, modifiers)
 
     def on_key_release(self, key, modifiers):
-        self._player_actor.on_key_release(key, modifiers)
+        self._player_controls.on_key_release(key, modifiers)
 
 class MyWindow(pyglet.window.Window):
     def __init__(self, **kwargs):
