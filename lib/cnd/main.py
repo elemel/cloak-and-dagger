@@ -2,6 +2,7 @@ from Box2D import *
 import math
 import pyglet
 from pyglet.gl import *
+import random
 import sys
 
 def trace(line):
@@ -47,13 +48,14 @@ class Enumeration(object):
 
 class Actor(object):
     def __init__(self, game_engine):
+        assert isinstance(game_engine, GameEngine)
         self.game_engine = game_engine
         self.game_engine.add_actor(self)
 
     def delete(self):
-        self.drawing = False
-        self.stepping = False
+        assert self.game_engine is not None
         self.game_engine.remove_actor(self)
+        self.game_engine = None
 
     def begin_step(self, dt):
         pass
@@ -71,6 +73,15 @@ class Actor(object):
         pass
 
     def debug_draw(self):
+        pass
+
+    def on_key_press(self, key, modifiers):
+        pass
+
+    def on_key_release(self, key, modifiers):
+        pass
+
+    def think(self):
         pass
 
 class TabInLevelError(Exception):
@@ -232,7 +243,9 @@ class CharacterControls(object):
         self.actor.controls = self
 
     def delete(self):
+        assert self.actor is not None
         self.actor.controls = None
+        self.actor = None
 
     def on_key_press(self, key, modifiers):
         if key == pyglet.window.key.LEFT:
@@ -450,6 +463,49 @@ class CharacterActor(Actor):
             glVertex2f(max_x, max_y)
         glEnd()
 
+    def on_key_press(self, key, modifiers):
+        self.controls.on_key_press(key, modifiers)
+
+    def on_key_release(self, key, modifiers):
+        self.controls.on_key_release(key, modifiers)
+
+    def think(self):
+        if self.ai is not None:
+            self.ai.think()
+
+class AI(object):
+    def __init__(self, actor):
+        assert isinstance(actor, CharacterActor)
+        assert actor.ai is None
+        self.actor = actor
+        self.actor.ai = self
+        self.min_turn_delay = 1.0
+        self.max_turn_delay = 5.0
+        self.turn_time = 0.0
+        self.update_turn_time()
+
+    def update_turn_time(self):
+        turn_delay = random.uniform(self.min_turn_delay, self.max_turn_delay)
+        self.turn_time = self.actor.game_engine.time + turn_delay
+
+    def delete(self):
+        assert self.actor is not None
+        self.actor.ai = None
+        self.actor = None
+
+    def think(self):
+        if self.actor.game_engine.time > self.turn_time:
+            self.update_turn_time()
+            self.turn()
+
+    def turn(self):
+        if self.actor.left:
+            self.actor.left = False
+            self.actor.right = True
+        else:
+            self.actor.left = True
+            self.actor.right = False
+
 def generate_circle_vertices(center=(0.0, 0.0), radius=1.0, angle=0.0,
                              vertex_count=256):
     cx, cy = center
@@ -490,8 +546,15 @@ class GameEngine(object):
         CharacterControls(self.player_actor)
         for i, guard_position in enumerate(self.level_actor.guard_positions):
             guard_name = 'GUARD_%s' % i
-            CharacterActor(self, name=guard_name, position=guard_position,
-                           debug_color=(255, 127, 0))
+            guard_actor = CharacterActor(self, name=guard_name,
+                                         position=guard_position,
+                                         debug_color=(255, 127, 0))
+            guard_actor.max_walk_velocity = 3.0
+            if random.randrange(2):
+                guard_actor.left = True
+            else:
+                guard_actor.right = True
+            AI(guard_actor)
         self.circle_vertices = list(generate_circle_vertices())
 
     def delete(self):
@@ -509,6 +572,9 @@ class GameEngine(object):
 
     def step(self, dt):
         self.time += dt
+        if self.actors:
+            actor = random.choice(self.actors)
+            actor.think()
         for actor in self.actors[:]:
             actor.begin_step(dt)
         self.world.Step(dt, 10, 10)
@@ -566,10 +632,10 @@ class GameEngine(object):
             actor.debug_draw()
 
     def on_key_press(self, key, modifiers):
-        self.player_actor.controls.on_key_press(key, modifiers)
+        self.player_actor.on_key_press(key, modifiers)
 
     def on_key_release(self, key, modifiers):
-        self.player_actor.controls.on_key_release(key, modifiers)
+        self.player_actor.on_key_release(key, modifiers)
 
 class MyWindow(pyglet.window.Window):
     def __init__(self, **kwargs):
