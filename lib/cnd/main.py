@@ -30,52 +30,30 @@ def sign(x):
     else:
         return 0
 
+class Enumeration(object):
+    def __init__(self, names):
+        self._names = tuple(names)
+        self._values = tuple(xrange(len(self._names)))
+        for name, value in zip(self._names, self._values):
+            setattr(self, name, value)
+
+    @property
+    def names(self):
+        return self._names
+
+    @property
+    def values(self):
+        return self._values
+
 class Actor(object):
-    def __init__(self, game_engine, stepping=False, drawing=False):
-        self._game_engine = game_engine
+    def __init__(self, game_engine):
+        self.game_engine = game_engine
         self.game_engine.add_actor(self)
-        self._stepping = False
-        self._drawing = False
-        self.stepping = stepping
-        self.drawing = drawing
 
     def delete(self):
         self.drawing = False
         self.stepping = False
         self.game_engine.remove_actor(self)
-        self._game_engine = None
-
-    @property
-    def game_engine(self):
-        return self._game_engine
-
-    @property
-    def stepping(self):
-        return self._stepping
-
-    @stepping.setter
-    def stepping(self, stepping):
-        stepping = bool(stepping)
-        if stepping != self.stepping:
-            self._stepping = stepping
-            if self.stepping:
-                self.game_engine.add_step_actor(self)
-            else:
-                self.game_engine.remove_step_actor(self)
-
-    @property
-    def drawing(self):
-        return self._drawing
-
-    @drawing.setter
-    def drawing(self, drawing):
-        drawing = bool(drawing)
-        if drawing != self.drawing:
-            self._drawing = drawing
-            if self.drawing:
-                self.game_engine.add_draw_actor(self)
-            else:
-                self.game_engine.remove_draw_actor(self)
 
     def begin_step(self, dt):
         pass
@@ -145,8 +123,7 @@ TILE_COLORS = dict(
 
 class LevelActor(Actor):
     def __init__(self, game_engine):
-        super(LevelActor, self).__init__(game_engine, stepping=True,
-                                         drawing=True)
+        super(LevelActor, self).__init__(game_engine)
         self.half_tile_width = 0.5
         self.half_tile_height = 0.5
         self.player_position = 0.0, 0.0
@@ -249,32 +226,37 @@ class Controls(object):
 
 class CharacterControls(object):
     def __init__(self, actor):
-        self._actor = actor
+        assert isinstance(actor, CharacterActor)
+        assert actor.controls is None
+        self.actor = actor
+        self.actor.controls = self
+
+    def delete(self):
+        self.actor.controls = None
 
     def on_key_press(self, key, modifiers):
         if key == pyglet.window.key.LEFT:
-            self._actor.left = True
+            self.actor.left = True
         if key == pyglet.window.key.RIGHT:
-            self._actor.right = True
+            self.actor.right = True
         if key == pyglet.window.key.UP:
-            self._actor.up = True
+            self.actor.up = True
         if key == pyglet.window.key.DOWN:
-            self._actor.down = True
+            self.actor.down = True
         if key == pyglet.window.key.SPACE:
-            self._actor.jump = True
+            self.actor.jump = True
 
     def on_key_release(self, key, modifiers):
         if key == pyglet.window.key.LEFT:
-            self._actor.left = False
+            self.actor.left = False
         if key == pyglet.window.key.RIGHT:
-            self._actor.right = False
+            self.actor.right = False
         if key == pyglet.window.key.UP:
-            self._actor.up = False
+            self.actor.up = False
         if key == pyglet.window.key.DOWN:
-            self._actor.down = False
+            self.actor.down = False
         if key == pyglet.window.key.SPACE:
-            self._actor.jump = False
-
+            self.actor.jump = False
 
 class ClosestRayCastCallback(b2RayCastCallback):
     def __init__(self, filter=None):
@@ -293,21 +275,6 @@ class ClosestRayCastCallback(b2RayCastCallback):
             self.normal = normal
             self.fraction = fraction
         return 1.0
-
-class Enumeration(object):
-    def __init__(self, names):
-        self._names = tuple(names)
-        self._values = tuple(xrange(len(self._names)))
-        for name, value in zip(self._names, self._values):
-            setattr(self, name, value)
-
-    @property
-    def names(self):
-        return self._names
-
-    @property
-    def values(self):
-        return self._values
 
 class CharacterActor(Actor):
     states = Enumeration("""
@@ -332,8 +299,7 @@ class CharacterActor(Actor):
 
     def __init__(self, game_engine, name='UNKNOWN', position=(0.0, 0.0),
                  debug_color=(0, 255, 0)):
-        super(CharacterActor, self).__init__(game_engine, stepping=True,
-                                             drawing=True)
+        super(CharacterActor, self).__init__(game_engine)
         self.name = name
         self.face = 1
         self.walk_acceleration = 10.0
@@ -358,6 +324,9 @@ class CharacterActor(Actor):
         self.down = False
         self.jump = False
 
+        self.controls = None
+        self.ai = None
+
     @property
     def state(self):
         return self._state
@@ -371,8 +340,8 @@ class CharacterActor(Actor):
         self._state = state
 
     def begin_step(self, dt):
-        self._step_face()
-        self._step_jump()
+        self.step_face()
+        self.step_jump()
         if self.state == self.states.STAND and self.right - self.left:
             self.state = self.states.WALK
         if self.state == self.states.WALK and not self.right - self.left:
@@ -401,11 +370,11 @@ class CharacterActor(Actor):
                     vx += (self.right - self.left) * dt * self.drift_acceleration
                 self.body.linearVelocity = vx, vy
 
-    def _step_face(self):
+    def step_face(self):
         if self.right - self.left:
             self.face = self.right - self.left
 
-    def _step_jump(self):
+    def step_jump(self):
         if self.jump and self.state in self.ground_states:
             self.state = self.states.JUMP
             vx, vy = self.body.linearVelocity
@@ -417,9 +386,9 @@ class CharacterActor(Actor):
             self.body.linearVelocity = vx, vy
 
     def end_step(self, dt):
-        self._step_ground()
+        self.step_ground()
 
-    def _step_ground(self):
+    def step_ground(self):
         callback = ClosestRayCastCallback()
         x, y = self.body.position
         p1 = x, y
@@ -487,85 +456,63 @@ class MyContactListener(b2ContactListener):
 
 class GameEngine(object):
     def __init__(self, view_width, view_height):
-        self._view_width = view_width
-        self._view_height = view_height
-        self._time = 0.0
-        self._world = b2World(gravity=(0.0, -13.0))
-        self._contact_listener = MyContactListener()
-        self._world.contactListener = self._contact_listener
-        self._actors = []
-        self._step_actors = []
-        self._draw_actors = []
-        self._camera_scale = float(view_height) / 20.0
-        self._level_actor = LevelActor(self)
-        player_position = self._level_actor.player_position
-        self._player_actor = CharacterActor(self, name='THIEF',
-                                            position=player_position,
-                                            debug_color=(0, 127, 255))
-        self._player_controls = CharacterControls(self._player_actor)
-        for i, guard_position in enumerate(self._level_actor.guard_positions):
+        self.view_width = view_width
+        self.view_height = view_height
+        self.time = 0.0
+        self.world = b2World(gravity=(0.0, -13.0))
+        self.contact_listener = MyContactListener()
+        self.world.contactListener = self.contact_listener
+        self.actors = []
+        self.camera_scale = float(view_height) / 20.0
+        self.level_actor = LevelActor(self)
+        player_position = self.level_actor.player_position
+        self.player_actor = CharacterActor(self, name='THIEF',
+                                           position=player_position,
+                                           debug_color=(0, 127, 255))
+        CharacterControls(self.player_actor)
+        for i, guard_position in enumerate(self.level_actor.guard_positions):
             guard_name = 'GUARD_%s' % i
             CharacterActor(self, name=guard_name, position=guard_position,
                            debug_color=(255, 127, 0))
-        self._circle_vertices = list(generate_circle_vertices())
-
-    @property
-    def time(self):
-        return self._time
-
-    @property
-    def world(self):
-        return self._world
+        self.circle_vertices = list(generate_circle_vertices())
 
     def delete(self):
-        for actor in self._actors[:]:
+        for actor in self.actors[:]:
             actor.delete()
-        assert not self._draw_actors
-        assert not self._step_actors
-        assert not self._actors
+        assert not self.actors
 
     def add_actor(self, actor):
-        self._actors.append(actor)
+        assert actor not in self.actors
+        self.actors.append(actor)
 
     def remove_actor(self, actor):
-        self._actors.remove(actor)
-
-    def add_step_actor(self, actor):
-        self._step_actors.append(actor)
-
-    def remove_step_actor(self, actor):
-        self._step_actors.remove(actor)
-
-    def add_draw_actor(self, actor):
-        self._draw_actors.append(actor)
-
-    def remove_draw_actor(self, actor):
-        self._draw_actors.remove(actor)
+        assert actor in self.actors
+        self.actors.remove(actor)
 
     def step(self, dt):
-        self._time += dt
-        for actor in self._step_actors[:]:
+        self.time += dt
+        for actor in self.actors[:]:
             actor.begin_step(dt)
-        self._world.Step(dt, 10, 10)
-        for actor in self._step_actors[:]:
+        self.world.Step(dt, 10, 10)
+        for actor in self.actors[:]:
             actor.end_step(dt)
 
     def draw(self):
         glPushMatrix()
-        glTranslatef(self._view_width // 2, self._view_height // 2, 0)
-        glScalef(self._camera_scale, self._camera_scale, self._camera_scale)
-        x, y = self._player_actor.body.position
+        glTranslatef(self.view_width // 2, self.view_height // 2, 0)
+        glScalef(self.camera_scale, self.camera_scale, self.camera_scale)
+        x, y = self.player_actor.body.position
         glTranslatef(-x, -y, 0.0)
-        for actor in self._draw_actors:
+        for actor in self.actors:
             actor.draw()
-        self._debug_draw()
+        self.debug_draw()
         glPopMatrix()
 
-    def _debug_draw(self):
-        self._debug_draw_shapes()
-        self._debug_draw_actors()
+    def debug_draw(self):
+        self.debug_draw_shapes()
+        self.debug_draw_actors()
 
-    def _debug_draw_shapes(self):
+    def debug_draw_shapes(self):
         glColor3ub(0, 127, 0)
         for body in self.world.bodies:
             glPushMatrix()
@@ -584,8 +531,8 @@ class GameEngine(object):
                     cx, cy = shape.pos
                     radius = shape.radius
                     glBegin(GL_LINE_LOOP)
-                    stride = len(self._circle_vertices) / 16
-                    for vx, vy in self._circle_vertices[::stride]:
+                    stride = len(self.circle_vertices) / 16
+                    for vx, vy in self.circle_vertices[::stride]:
                         glVertex2f(cx + radius * vx, cy + radius * vy)
                     glEnd()
                     glBegin(GL_LINES)
@@ -596,15 +543,15 @@ class GameEngine(object):
                     assert False
             glPopMatrix()
 
-    def _debug_draw_actors(self):
-        for actor in self._actors:
+    def debug_draw_actors(self):
+        for actor in self.actors:
             actor.debug_draw()
 
     def on_key_press(self, key, modifiers):
-        self._player_controls.on_key_press(key, modifiers)
+        self.player_actor.controls.on_key_press(key, modifiers)
 
     def on_key_release(self, key, modifiers):
-        self._player_controls.on_key_release(key, modifiers)
+        self.player_actor.controls.on_key_release(key, modifiers)
 
 class MyWindow(pyglet.window.Window):
     def __init__(self, **kwargs):
@@ -612,40 +559,40 @@ class MyWindow(pyglet.window.Window):
         if self.fullscreen:
             self.set_exclusive_mouse()
             self.set_exclusive_keyboard()
-        self._game_engine = GameEngine(self.width, self.height)
-        self._time = 0.0
-        self._dt = 1.0 / 60.0
-        pyglet.clock.schedule_interval(self._step, 0.1 * self._dt)
-        self._clock_display = pyglet.clock.ClockDisplay()
+        self.game_engine = GameEngine(self.width, self.height)
+        self.time = 0.0
+        self.dt = 1.0 / 60.0
+        pyglet.clock.schedule_interval(self.step, 0.1 * self.dt)
+        self.clock_display = pyglet.clock.ClockDisplay()
 
     def close(self):
-        pyglet.clock.unschedule(self._step)
+        pyglet.clock.unschedule(self.step)
         super(MyWindow, self).close()
 
-    def _step(self, dt):
-        self._time += dt
-        if self._game_engine.time + self._dt < self._time:
-            self._game_engine.step(self._dt)
-        if self._game_engine.time + self._dt < self._time:
+    def step(self, dt):
+        self.time += dt
+        if self.game_engine.time + self.dt < self.time:
+            self.game_engine.step(self.dt)
+        if self.game_engine.time + self.dt < self.time:
             # Skip frames.
-            self._time = self._game_engine.time
+            self.time = self.game_engine.time
 
     def on_draw(self):
         self.clear()
-        self._game_engine.draw()
-        self._clock_display.draw()
+        self.game_engine.draw()
+        self.clock_display.draw()
 
     def on_key_press(self, key, modifiers):
         if key == pyglet.window.key.ESCAPE:
             self.close()
         else:
-            self._game_engine.on_key_press(key, modifiers)
+            self.game_engine.on_key_press(key, modifiers)
 
     def on_key_release(self, key, modifiers):
         if key == pyglet.window.key.ESCAPE:
             pass
         else:
-            self._game_engine.on_key_release(key, modifiers)
+            self.game_engine.on_key_release(key, modifiers)
 
 def main():
     fullscreen = '--fullscreen' in sys.argv
