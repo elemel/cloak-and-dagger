@@ -341,11 +341,11 @@ class CharacterActor(Actor):
         self.ai = None
 
     @property
-    def face_left(self):
+    def facing_left(self):
         return self.face < 0
 
     @property
-    def face_right(self):
+    def facing_right(self):
         return self.face > 0
 
     @property
@@ -451,7 +451,7 @@ class CharacterActor(Actor):
         glVertex2f(max_x, min_y)
         glVertex2f(max_x, max_y)
         glVertex2f(min_x, max_y)
-        if self.face_left:
+        if self.facing_left:
             glVertex2f(min_x - 0.2, max_y - 0.2)
             glVertex2f(min_x, max_y - 0.2)
             glVertex2f(min_x, max_y)
@@ -548,6 +548,7 @@ class GameEngine(object):
             guard_actor = CharacterActor(self, name=guard_name,
                                          position=guard_position,
                                          debug_color=(255, 127, 0))
+            guard_actor.walk_acceleration = 5.0
             guard_actor.max_walk_velocity = 3.0
             if random.randrange(2):
                 guard_actor.left = True
