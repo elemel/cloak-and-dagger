@@ -496,15 +496,15 @@ class AI(object):
     def think(self):
         if self.actor.game_engine.time > self.turn_time:
             self.update_turn_time()
-            self.turn()
-
-    def turn(self):
-        if self.actor.left:
-            self.actor.left = False
-            self.actor.right = True
-        else:
-            self.actor.left = True
-            self.actor.right = False
+            if self.actor.left:
+                self.actor.left = False
+            elif self.actor.right:
+                self.actor.right = False
+            else:
+                if random.random() < 0.5:
+                    self.actor.left = True
+                else:
+                    self.actor.right = True
 
 def generate_circle_vertices(center=(0.0, 0.0), radius=1.0, angle=0.0,
                              vertex_count=256):
