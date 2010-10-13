@@ -496,9 +496,8 @@ class AI(object):
     def think(self):
         if self.actor.game_engine.time > self.turn_time:
             self.update_turn_time()
-            if self.actor.left:
+            if self.actor.left or self.actor.right:
                 self.actor.left = False
-            elif self.actor.right:
                 self.actor.right = False
             else:
                 if random.random() < 0.5:
