@@ -645,6 +645,7 @@ class MyWindow(pyglet.window.Window):
         self.game_engine = GameEngine(self.width, self.height)
         self.time = 0.0
         self.dt = 1.0 / 60.0
+        self.max_dt = 10.0 * self.dt
         pyglet.clock.schedule_interval(self.step, 0.1 * self.dt)
         self.clock_display = pyglet.clock.ClockDisplay()
 
@@ -653,12 +654,13 @@ class MyWindow(pyglet.window.Window):
         super(MyWindow, self).close()
 
     def step(self, dt):
+        if dt > self.max_dt:
+            skip = (dt - self.max_dt) / self.dt
+            logging.debug('Skipping %g frames.' % skip)
+            dt = self.max_dt
         self.time += dt
-        if self.game_engine.time + self.dt < self.time:
+        while self.game_engine.time + self.dt < self.time:
             self.game_engine.step(self.dt)
-        if self.game_engine.time + self.dt < self.time:
-            # Skip frames.
-            self.time = self.game_engine.time
 
     def on_draw(self):
         self.clear()
