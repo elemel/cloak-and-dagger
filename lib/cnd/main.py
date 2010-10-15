@@ -1,35 +1,10 @@
 from Box2D import *
+import logging
 import math
 import pyglet
 from pyglet.gl import *
 import random
 import sys
-
-def trace(line):
-    sys.stderr.write('TRACE: %s\n' % line)
-
-def debug(line):
-    sys.stderr.write('DEBUG: %s\n' % line)
-
-def info(line):
-    sys.stderr.write('INFO: %s\n' % line)
-
-def warn(line):
-    sys.stderr.write('WARN: %s\n' % line)
-
-def error(line):
-    sys.stderr.write('ERROR: %s\n' % line)
-
-def fatal(line):
-    sys.stderr.write('FATAL: %s\n' % line)
-
-def sign(x):
-    if x < 0:
-        return -1
-    elif x > 0:
-        return 1
-    else:
-        return 0
 
 class Enumeration(object):
     def __init__(self, names):
@@ -45,6 +20,14 @@ class Enumeration(object):
     @property
     def values(self):
         return self._values
+
+def sign(x):
+    if x < 0:
+        return -1
+    elif x > 0:
+        return 1
+    else:
+        return 0
 
 class Actor(object):
     def __init__(self, game_engine):
@@ -355,9 +338,9 @@ class CharacterActor(Actor):
     @state.setter
     def state(self, state):
         if state != self._state:
-            debug('Character %s changes state from %s to %s.' %
-                  (self.name, self.states.names[self._state],
-                   self.states.names[state]))
+            logging.debug('Character %s changes state from %s to %s.' %
+                          (self.name, self.states.names[self._state],
+                           self.states.names[state]))
         self._state = state
 
     def begin_step(self, dt):
@@ -408,6 +391,7 @@ class CharacterActor(Actor):
 
     def end_step(self, dt):
         self.step_ground()
+        self.step_collide()
 
     def step_ground(self):
         callback = ClosestRayCastCallback()
@@ -431,6 +415,21 @@ class CharacterActor(Actor):
                 self.body.linearVelocity = vx, 0.0
                 if self.state in self.air_states:
                     self.state = self.states.STAND
+
+    def step_collide(self):
+        for contact_edge in self.body.contacts:
+            contact = contact_edge.contact
+            fixture_a = contact.fixtureA
+            fixture_b = contact.fixtureB
+            actor_a, key_a = fixture_a.userData
+            actor_b, key_b = fixture_b.userData
+            if actor_a is self and actor_b is not self:
+                self.collide(fixture_a, fixture_b)
+            elif actor_a is not self and actor_b is self:
+                self.collide(fixture_b, fixture_a)
+
+    def collide(self, fixture_a, fixture_b):
+        pass
 
     def debug_draw(self):
         glColor3ub(*self.debug_color)
@@ -678,7 +677,17 @@ class MyWindow(pyglet.window.Window):
         else:
             self.game_engine.on_key_release(key, modifiers)
 
+def configure_logging():
+    root_logger = logging.getLogger()
+    formatter = logging.Formatter('%(levelname)s: %(message)s')
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+    if '--debug' in sys.argv:
+        root_logger.setLevel(logging.DEBUG)
+
 def main():
+    configure_logging()
     fullscreen = '--fullscreen' in sys.argv
     window = MyWindow(caption='Cloak & Dagger', fullscreen=fullscreen)
     pyglet.app.run()
