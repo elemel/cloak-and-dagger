@@ -40,6 +40,9 @@ class Actor(object):
         self.game_engine.remove_actor(self)
         self.game_engine = None
 
+    def control(self, controls):
+        pass
+
     def begin_step(self, dt):
         pass
 
@@ -56,15 +59,6 @@ class Actor(object):
         pass
 
     def debug_draw(self):
-        pass
-
-    def on_key_press(self, key, modifiers):
-        pass
-
-    def on_key_release(self, key, modifiers):
-        pass
-
-    def think(self):
         pass
 
 class TabInLevelError(Exception):
@@ -189,40 +183,36 @@ class Controls(object):
         pass
 
 class CharacterControls(object):
-    def __init__(self, actor):
-        assert isinstance(actor, CharacterActor)
-        assert actor.controls is None
-        self.actor = actor
-        self.actor.controls = self
-
-    def delete(self):
-        assert self.actor is not None
-        self.actor.controls = None
-        self.actor = None
+    def __init__(self):
+        self.left = False
+        self.right = False
+        self.up = False
+        self.down = False
+        self.jump = False
 
     def on_key_press(self, key, modifiers):
         if key == pyglet.window.key.LEFT:
-            self.actor.left = True
+            self.left = True
         if key == pyglet.window.key.RIGHT:
-            self.actor.right = True
+            self.right = True
         if key == pyglet.window.key.UP:
-            self.actor.up = True
+            self.up = True
         if key == pyglet.window.key.DOWN:
-            self.actor.down = True
+            self.down = True
         if key == pyglet.window.key.SPACE:
-            self.actor.jump = True
+            self.jump = True
 
     def on_key_release(self, key, modifiers):
         if key == pyglet.window.key.LEFT:
-            self.actor.left = False
+            self.left = False
         if key == pyglet.window.key.RIGHT:
-            self.actor.right = False
+            self.right = False
         if key == pyglet.window.key.UP:
-            self.actor.up = False
+            self.up = False
         if key == pyglet.window.key.DOWN:
-            self.actor.down = False
+            self.down = False
         if key == pyglet.window.key.SPACE:
-            self.actor.jump = False
+            self.jump = False
 
 class ClosestRayCastCallback(b2RayCastCallback):
     def __init__(self, filter=None):
@@ -283,15 +273,7 @@ class CharacterActor(Actor):
                                                         userData=(self, None))
         self.body.CreateCircleFixture(radius=self.radius, density=1.0,
                                       isSensor=True, userData=(self, None))
-
-        self.left = False
-        self.right = False
-        self.up = False
-        self.down = False
-        self.jump = False
-
-        self.controls = None
-        self.ai = None
+        self.controls = CharacterControls()
 
     @property
     def facing_left(self):
@@ -314,11 +296,13 @@ class CharacterActor(Actor):
         self._state = state
 
     def begin_step(self, dt):
-        self.step_face()
+        face = int(self.controls.right) - int(self.controls.left)
+        if face:
+            self.face = face
         self.step_jump()
-        if self.state == self.states.STAND and self.right - self.left:
+        if face and self.state == self.states.STAND:
             self.state = self.states.WALK
-        if self.state == self.states.WALK and not self.right - self.left:
+        if not face and self.state == self.states.WALK:
             self.state = self.states.STAND
 
         if self.state == self.states.WALK:
@@ -334,22 +318,18 @@ class CharacterActor(Actor):
                 vx = 0.0
             self.body.linearVelocity = vx, vy
         if self.state == self.states.JUMP:
-            if self.left or self.right:
+            if face:
                 vx, vy = self.body.linearVelocity
-                if sign(vx) == self.right - self.left:
-                    vx2 = vx + (self.right - self.left) * dt * self.drift_acceleration
+                if sign(vx) == face:
+                    vx2 = vx + float(face) * dt * self.drift_acceleration
                     vx2 = sign(vx2) * min(abs(vx2), self.max_drift_velocity)
                     vx = sign(vx) * max(abs(vx), abs(vx2))
                 else:
-                    vx += (self.right - self.left) * dt * self.drift_acceleration
+                    vx += float(face) * dt * self.drift_acceleration
                 self.body.linearVelocity = vx, vy
 
-    def step_face(self):
-        if self.right - self.left:
-            self.face = self.right - self.left
-
     def step_jump(self):
-        if self.jump and self.state in self.ground_states:
+        if self.controls.jump and self.state in self.ground_states:
             self.state = self.states.JUMP
             vx, vy = self.body.linearVelocity
             ratio = abs(vx) / self.max_walk_velocity
@@ -438,16 +418,10 @@ class CharacterActor(Actor):
     def on_key_release(self, key, modifiers):
         self.controls.on_key_release(key, modifiers)
 
-    def think(self):
-        if self.ai is not None:
-            self.ai.think()
-
 class AI(object):
     def __init__(self, actor):
         assert isinstance(actor, CharacterActor)
-        assert actor.ai is None
         self.actor = actor
-        self.actor.ai = self
         self.min_turn_delay = 1.0
         self.max_turn_delay = 5.0
         self.turn_time = 0.0
@@ -457,22 +431,18 @@ class AI(object):
         turn_delay = random.uniform(self.min_turn_delay, self.max_turn_delay)
         self.turn_time = self.actor.game_engine.time + turn_delay
 
-    def delete(self):
-        assert self.actor is not None
-        self.actor.ai = None
-        self.actor = None
-
     def think(self):
         if self.actor.game_engine.time > self.turn_time:
             self.update_turn_time()
-            if self.actor.left or self.actor.right:
-                self.actor.left = False
-                self.actor.right = False
+            controls = self.actor.controls
+            if controls.left or controls.right:
+                controls.left = False
+                controls.right = False
             else:
                 if random.random() < 0.5:
-                    self.actor.left = True
+                    controls.left = True
                 else:
-                    self.actor.right = True
+                    controls.right = True
 
 def generate_circle_vertices(center=(0.0, 0.0), radius=1.0, angle=0.0,
                              vertex_count=256):
@@ -505,13 +475,13 @@ class GameEngine(object):
         self.contact_listener = MyContactListener()
         self.world.contactListener = self.contact_listener
         self.actors = []
+        self.ais = {}
         self.camera_scale = float(view_height) / 20.0
         self.level_actor = LevelActor(self)
         player_position = self.level_actor.player_position
         self.player_actor = CharacterActor(self, name='THIEF',
                                            position=player_position,
                                            debug_color=(0, 127, 255))
-        CharacterControls(self.player_actor)
         for i, guard_position in enumerate(self.level_actor.guard_positions):
             guard_name = 'GUARD_%s' % i
             guard_actor = CharacterActor(self, name=guard_name,
@@ -523,7 +493,7 @@ class GameEngine(object):
                 guard_actor.left = True
             else:
                 guard_actor.right = True
-            AI(guard_actor)
+            self.ais[guard_actor] = AI(guard_actor)
         self.circle_vertices = list(generate_circle_vertices())
 
     def delete(self):
@@ -543,7 +513,9 @@ class GameEngine(object):
         self.time += dt
         if self.actors:
             actor = random.choice(self.actors)
-            actor.think()
+            ai = self.ais.get(actor)
+            if ai is not None:
+                ai.think()
         for actor in self.actors[:]:
             actor.begin_step(dt)
         self.world.Step(dt, 10, 10)
@@ -601,10 +573,10 @@ class GameEngine(object):
             actor.debug_draw()
 
     def on_key_press(self, key, modifiers):
-        self.player_actor.on_key_press(key, modifiers)
+        self.player_actor.controls.on_key_press(key, modifiers)
 
     def on_key_release(self, key, modifiers):
-        self.player_actor.on_key_release(key, modifiers)
+        self.player_actor.controls.on_key_release(key, modifiers)
 
 class MyWindow(pyglet.window.Window):
     def __init__(self, **kwargs):
