@@ -40,9 +40,6 @@ class Actor(object):
         self.game_engine.remove_actor(self)
         self.game_engine = None
 
-    def control(self, controls):
-        pass
-
     def begin_step(self, dt):
         pass
 
